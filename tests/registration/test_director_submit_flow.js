@@ -1,14 +1,12 @@
-const fs = require('fs');
-const path = require('path');
-
-const code = fs.readFileSync(path.join(__dirname, 'js/app.js'), 'utf8');
 const storageValues = {};
-const localStorage = {
+globalThis.localStorage = {
   getItem: key => Object.prototype.hasOwnProperty.call(storageValues, key) ? storageValues[key] : null,
   setItem: (key, value) => { storageValues[key] = String(value); },
   removeItem: key => { delete storageValues[key]; },
   clear: () => { Object.keys(storageValues).forEach(key => delete storageValues[key]); }
 };
+
+const mockLocation = { hash: '#/register', replace(value) { this.hash = value; } };
 
 class MockElement {
   constructor(id, value = '') {
@@ -41,27 +39,26 @@ const intentChips = ['romance', 'friendship', 'either'].map(intent => {
 });
 const genreRadio = element('genre-romance', 'Romance');
 genreRadio.checked = true;
-const document = {
+
+globalThis.document = {
   getElementById: id => element(id),
   querySelectorAll: selector => selector === '.intent-chip' ? intentChips : selector.includes('favoriteGenre') ? [genreRadio] : [],
   querySelector: selector => selector.includes('favoriteGenre') ? genreRadio : null,
   addEventListener() {},
   body: { appendChild() {}, removeChild() {} }
 };
-const windowObj = {
-  localStorage,
-  location: { hash: '#/register', replace(value) { this.hash = value; } },
+
+globalThis.window = {
+  localStorage: globalThis.localStorage,
+  location: mockLocation,
   addEventListener() {},
   scrollTo() {}
 };
-const context = {
-  localStorage, document, window: windowObj, location: windowObj.location,
-  console, setTimeout: fn => fn(), Math, Date, JSON
-};
+globalThis.setTimeout = fn => fn();
+globalThis.location = mockLocation;
 
-const fn = new Function(...Object.keys(context), code + '\nwindow.__testHooks = { initRegistrationForm, Storage };');
-fn(...Object.values(context));
-const hooks = windowObj.__testHooks;
+const { initRegistrationForm } = await import('../../js/registration/registration.js');
+const { Storage } = await import('../../js/storage/storage.js');
 
 function setForm(data) {
   element('in-name').value = data.name;
@@ -79,9 +76,9 @@ function setForm(data) {
   selectedChip.dispatchEvent({ type: 'click' });
 }
 
-hooks.initRegistrationForm();
+initRegistrationForm();
 
-// 1. First registration -> establishes Director profile & authenticates
+// 1. Any registration creates a normal student candidate record and redirects to #/status
 const firstReg = {
   name: 'FirstUser', branch: 'CSE', semester: 'S10', instagram: 'FIRST_USER',
   favoriteMovie: 'Bangalore Days', favoriteGenre: 'Romance', favoriteMusic: 'Malare',
@@ -89,36 +86,9 @@ const firstReg = {
 };
 setForm(firstReg);
 form.dispatchEvent({ type: 'submit' });
-if (windowObj.location.hash !== '#/director-room') throw new Error(`First registration went to ${windowObj.location.hash}`);
-if (hooks.Storage.getCandidates().length !== 0) throw new Error('First registration (Director) was persisted as a candidate');
-if (JSON.parse(localStorage.getItem('pelicula_session')).role !== 'director') throw new Error('Director session was not persisted');
 
-// Logout Director
-localStorage.removeItem('peliculaDirectorAuthenticated');
-localStorage.removeItem('pelicula_session');
-
-// 2. Secret Re-entry -> Submitting same exact profile details re-authenticates as Director
-windowObj.location.hash = '#/register';
-setForm(firstReg);
-form.dispatchEvent({ type: 'submit' });
-if (windowObj.location.hash !== '#/director-room') throw new Error(`Secret Director re-entry went to ${windowObj.location.hash}`);
-if (hooks.Storage.getCandidates().length !== 0) throw new Error('Secret Director re-entry created a candidate record');
-if (JSON.parse(localStorage.getItem('pelicula_session')).role !== 'director') throw new Error('Director session was not re-persisted');
-
-// Logout Director again
-localStorage.removeItem('peliculaDirectorAuthenticated');
-localStorage.removeItem('pelicula_session');
-
-// 3. Normal candidate registration -> Submitting different details registers normal candidate
-windowObj.location.hash = '#/register';
-const secondReg = {
-  name: 'SecondUser', branch: 'ECE', semester: 'S4', instagram: 'SECOND_USER',
-  favoriteMovie: 'Titanic', favoriteGenre: 'Romance', favoriteMusic: 'My Heart Will Go On',
-  matchIntent: 'romance', gender: 'Female'
-};
-setForm(secondReg);
-form.dispatchEvent({ type: 'submit' });
-if (windowObj.location.hash !== '#/status') throw new Error('Second registration did not follow normal candidate status flow');
-if (hooks.Storage.getCandidates().length !== 1) throw new Error('Second registration was not persisted as a candidate');
+if (mockLocation.hash !== '#/status') throw new Error(`Student registration went to ${mockLocation.hash} instead of #/status`);
+if (Storage.getCandidates().length !== 1) throw new Error('Student registration was not persisted as a candidate');
+if (JSON.parse(globalThis.localStorage.getItem('pelicula_session')).role !== 'candidate') throw new Error('Student session role should be candidate');
 
 console.log('Director submit flow checks passed.');

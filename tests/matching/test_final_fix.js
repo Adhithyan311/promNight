@@ -2,20 +2,29 @@
  * End-to-End Acceptance Test Suite for Película Prom Night — Costume Photo System
  */
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { costumeSets } from '../../js/config/constants.js';
+import { handleCreateMatch } from '../../js/matching/createMatch.js';
+import { renderCandidateStatus } from '../../js/student/studentStatus.js';
+import { renderCostumeArea } from '../../js/student/studentMatch.js';
+import { startPromCountdown } from '../../js/ui/animations.js';
 
-const jsContent = fs.readFileSync(path.join(__dirname, 'js/app.js'), 'utf8');
-const htmlContent = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Mock localStorage
 const mockStorage = {};
-const localStorage = {
+globalThis.localStorage = {
   getItem: (key) => mockStorage[key] || null,
   setItem: (key, val) => { mockStorage[key] = String(val); },
   removeItem: (key) => { delete mockStorage[key]; },
   clear: () => { Object.keys(mockStorage).forEach(k => delete mockStorage[k]); }
 };
+
+import { installMatchStorageGuard } from '../../js/storage/storage.js';
+installMatchStorageGuard();
 
 const radioGroups = {};
 
@@ -83,7 +92,7 @@ function getElem(id) {
   return elements[id];
 }
 
-const document = {
+globalThis.document = {
   getElementById: (id) => getElem(id),
   querySelectorAll: () => [],
   querySelector: () => new MockElement(),
@@ -103,23 +112,19 @@ const document = {
   addEventListener: () => {}
 };
 
-const window = {
-  localStorage,
+globalThis.window = {
+  localStorage: globalThis.localStorage,
   location: { hash: '#/register' },
   addEventListener: () => {},
   scrollTo: () => {},
   Image: function() { this.src = ''; }
 };
 
-const augmentedJs = jsContent + '\nwindow.costumeSets = costumeSets;\nwindow.handleCreateMatch = handleCreateMatch;\nwindow.renderCandidateStatus = renderCandidateStatus;\nwindow.renderCostumeArea = renderCostumeArea;\nwindow.startPromCountdown = startPromCountdown;\n';
-
-const context = {
-  localStorage, document, window, location: window.location, console,
-  setTimeout: (fn) => fn(), Math, Date, JSON, Image: window.Image
-};
-
-const fn = new Function(...Object.keys(context), augmentedJs);
-fn(...Object.values(context));
+globalThis.costumeSets = costumeSets;
+globalThis.handleCreateMatch = handleCreateMatch;
+globalThis.renderCandidateStatus = renderCandidateStatus;
+globalThis.renderCostumeArea = renderCostumeArea;
+globalThis.startPromCountdown = startPromCountdown;
 
 console.log("=== PELÍCULA COSTUME PHOTO SYSTEM TEST SUITE ===\n");
 
@@ -127,7 +132,7 @@ console.log("=== PELÍCULA COSTUME PHOTO SYSTEM TEST SUITE ===\n");
 // TEST 1 — ASSET FILES EXISTENCE CHECK
 // ----------------------------------------------------
 console.log("[TEST 1] Verifying 8 Cropped Costume Asset Files...");
-const costumesDir = path.join(__dirname, 'assets/costumes');
+const costumesDir = path.join(__dirname, '../../assets/costumes');
 const expectedAssets = [
   'set1-boy.jpg', 'set1-girl.jpg',
   'set2-boy.jpg', 'set2-girl.jpg',
@@ -153,9 +158,9 @@ if (allAssetsExist) {
 // TEST 2 — DETERMINISTIC MATCH COSTUME ROTATION (1..4 -> Set1..4, 5 -> Set1)
 // ----------------------------------------------------
 console.log("[TEST 2] Testing Match Creation Costume Rotation...");
-localStorage.clear();
-localStorage.setItem('peliculaDirectorAuthenticated', 'true');
-localStorage.setItem('pelicula_session', JSON.stringify({ role: 'director', authenticated: true }));
+globalThis.localStorage.clear();
+globalThis.localStorage.setItem('peliculaDirectorAuthenticated', 'true');
+globalThis.localStorage.setItem('pelicula_session', JSON.stringify({ role: 'director', authenticated: true }));
 
 const assignedSets = [];
 const setNames = ["Midnight Black", "Burgundy Romance", "Ivory & Brown", "Midnight Blue"];
@@ -165,14 +170,14 @@ for (let i = 1; i <= 5; i++) {
   const cB = { id: `PL-B${i}`, name: `Cand B${i}`, gender: "female", role: "candidate", status: "IN REVIEW" };
   allCands.push(cA, cB);
 }
-localStorage.setItem('pelicula_candidates', JSON.stringify(allCands));
+globalThis.localStorage.setItem('pelicula_candidates', JSON.stringify(allCands));
 
 for (let i = 1; i <= 5; i++) {
-  const cands = JSON.parse(localStorage.getItem('pelicula_candidates'));
+  const cands = JSON.parse(globalThis.localStorage.getItem('pelicula_candidates'));
   const cA = cands.find(c => c.id === `PL-A${i}`);
   const cB = cands.find(c => c.id === `PL-B${i}`);
-  window.handleCreateMatch(cA, cB, 85);
-  const matches = JSON.parse(localStorage.getItem('pelicula_matches'));
+  globalThis.handleCreateMatch(cA, cB, 85);
+  const matches = JSON.parse(globalThis.localStorage.getItem('pelicula_matches'));
   const latestMatch = matches[matches.length - 1];
   assignedSets.push(latestMatch.costumeSetId);
   const themeName = setNames[latestMatch.costumeSetId - 1];
@@ -197,11 +202,11 @@ if (
 // TEST 3 — FIXED ROLES (CAND A = BOY ONLY, CAND B = GIRL ONLY)
 // ----------------------------------------------------
 console.log("[TEST 3] Testing Fixed Roles (Candidate A = Boy image, Candidate B = Girl image)...");
-const matches = JSON.parse(localStorage.getItem('pelicula_matches'));
+const matches = JSON.parse(globalThis.localStorage.getItem('pelicula_matches'));
 const match2 = matches[1]; // costumeSetId = 2 (Burgundy Romance)
-localStorage.setItem('pelicula_session', JSON.stringify({ role: "candidate", id: match2.candidateAId }));
+globalThis.localStorage.setItem('pelicula_session', JSON.stringify({ role: "candidate", id: match2.candidateAId }));
 
-window.renderCandidateStatus();
+globalThis.renderCandidateStatus();
 
 const phA = getElem("m-ph-a");
 const phB = getElem("m-ph-b");
@@ -232,11 +237,11 @@ const legacyMatch = {
   candidateB: { id: "PL-L2", name: "Legacy 2" },
   affinityScore: 90
 };
-localStorage.setItem('pelicula_matches', JSON.stringify([legacyMatch]));
-localStorage.setItem('pelicula_candidates', JSON.stringify([{ id: "PL-L1", name: "Legacy 1", role: "candidate", status: "MATCHED" }]));
-localStorage.setItem('pelicula_session', JSON.stringify({ role: "candidate", id: "PL-L1" }));
+globalThis.localStorage.setItem('pelicula_matches', JSON.stringify([legacyMatch]));
+globalThis.localStorage.setItem('pelicula_candidates', JSON.stringify([{ id: "PL-L1", name: "Legacy 1", role: "candidate", status: "MATCHED" }]));
+globalThis.localStorage.setItem('pelicula_session', JSON.stringify({ role: "candidate", id: "PL-L1" }));
 
-window.renderCandidateStatus();
+globalThis.renderCandidateStatus();
 
 console.log("  Legacy match phA innerHTML contains SET 0:", phA.innerHTML.includes("SET 0"));
 
@@ -250,7 +255,7 @@ if (phA.innerHTML.includes("SET 0")) {
 // TEST 5 — REFRESH & PERSISTENCE CHECK
 // ----------------------------------------------------
 console.log("[TEST 5] Testing Session Refresh & Persistence...");
-const reloadMatches = JSON.parse(localStorage.getItem('pelicula_matches'));
+const reloadMatches = JSON.parse(globalThis.localStorage.getItem('pelicula_matches'));
 const matchAfterReload = reloadMatches[0];
 console.log("  Stored costumeSetId after reload:", matchAfterReload.costumeSetId);
 
@@ -264,7 +269,7 @@ if (matchAfterReload.costumeSetId !== undefined && matchAfterReload.costumeSetId
 // TEST 6 — LIVE COUNTDOWN TIMER (DAYS/HOURS/MINS/SECS & ZERO-PAD & EVENT STARTED)
 // ----------------------------------------------------
 console.log("[TEST 6] Testing Live Countdown Timer & Target Date Handlers...");
-window.startPromCountdown();
+globalThis.startPromCountdown();
 
 const cdDays = getElem("cd-days");
 const cdHours = getElem("cd-hours");

@@ -1,43 +1,35 @@
+/**
+ * Same Scene — Supabase Client
+ */
+
 (function () {
-  const defaultUrl = 'https://pxrhmuxwewipclztyaby.supabase.co';
-  const defaultKey = 'sb_publishable_kYMQ1Mp2zKiirSeKbP-Nvw_ARYcla0l';
+  const SUPABASE_URL =
+    'https://pxrhmuxwewipclztyaby.supabase.co';
 
-  const config = {
-    url: window.SUPABASE_URL || defaultUrl,
-    publishableKey: window.SUPABASE_PUBLISHABLE_KEY || defaultKey
-  };
-
-  if (!window.supabase && window.supabaseCreateClient) {
-    window.supabase = window.supabaseCreateClient(config.url, config.publishableKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: false
-      }
-    });
-  }
-
-  if (!window.supabase && window.supabase && typeof window.supabase.createClient === 'function') {
-    window.supabase = window.supabase.createClient(config.url, config.publishableKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: false
-      }
-    });
-  }
-
-  if (!window.supabase && typeof window.supabaseCreateClient !== 'undefined') {
-    window.supabase = window.supabaseCreateClient(config.url, config.publishableKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: false
-      }
-    });
-  }
+  const SUPABASE_PUBLISHABLE_KEY =
+    'sb_publishable_kYMQ1Mp2zKiirSeKbP-Nvw_ARYcla0l';
 
   if (!window.supabase) {
-    console.warn('Supabase client is unavailable. The site will continue with placeholder behavior until the CDN script loads.');
+    console.error('Supabase library is not loaded.');
+    return;
   }
+
+  if (typeof window.supabase.createClient !== 'function') {
+    console.error('Supabase createClient() is unavailable.');
+    return;
+  }
+
+  window.supabaseClient = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY,
+    {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false
+      }
+    }
+  );
+
+  console.log('Same Scene: Supabase connected.');
 })();

@@ -1,301 +1,739 @@
+-- ============================================================
+-- SAME SCENE
+-- CLEAN DATABASE SCHEMA
+-- ============================================================
+--
+-- Architecture:
+--
+-- Supabase Auth
+--     └── Director email + password
+--
+-- PostgreSQL
+--     ├── directors
+--     ├── students
+--     └── matches
+--
+-- Student registration fields:
+--     name
+--     department
+--     semester
+--     instagram_id
+--     favourite_movie
+--     gender
+--     match_intent
+--
+-- No automatic matching.
+-- No compatibility score.
+-- No favourite genre.
+-- No favourite music.
+-- No costume data.
+-- No Director participant.
+--
+-- ============================================================
+
+
+-- ============================================================
+-- 1. EXTENSIONS
+-- ============================================================
+
 create extension if not exists pgcrypto;
 
-create type public.participant_role as enum ('candidate', 'director');
 
-create table if not exists public.participants (
-  id uuid primary key default gen_random_uuid(),
-  candidate_code text unique not null,
-  name text not null,
-  branch text not null,
-  semester text not null,
-  instagram text not null,
-  favorite_movie text not null,
-  favorite_genre text not null,
-  favorite_music text not null,
-  match_intent text not null default 'either',
-  gender text not null check (gender in ('Male', 'Female', 'Other')),
-  role public.participant_role not null,
-  status text not null default 'IN REVIEW' check (status in ('IN REVIEW', 'MATCHED')),
-  registered_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+-- ============================================================
+-- 2. REMOVE OLD SAME SCENE DATABASE OBJECTS
+-- ============================================================
+
+-- Remove old functions first because they depend on old tables.
+
+drop function if exists public.ensure_director_record(jsonb);
+
+drop function if exists public.create_match_if_eligible(
+    uuid,
+    uuid,
+    numeric,
+    integer
 );
 
-create table if not exists public.directors (
-  id uuid primary key default gen_random_uuid(),
-  participant_id uuid not null unique references public.participants (id) on delete cascade,
-  name text not null,
-  branch text not null,
-  semester text not null,
-  instagram text not null,
-  favorite_movie text not null,
-  favorite_genre text not null,
-  favorite_music text not null,
-  gender text not null,
-  created_at timestamptz not null default now()
+drop function if exists public.next_candidate_code();
+
+-- Remove old tables.
+
+drop table if exists public.directors cascade;
+drop table if exists public.matches cascade;
+drop table if exists public.participants cascade;
+
+-- Remove old enum.
+
+drop type if exists public.participant_role cascade;
+
+
+-- ============================================================
+-- 3. DIRECTORS TABLE
+-- ============================================================
+--
+-- IMPORTANT:
+-- A Director is NOT a student.
+-- A Director is NOT stored inside students.
+--
+-- Supabase Auth stores:
+--     email
+--     password
+--     authentication session
+--
+-- This table only identifies which authenticated Auth user
+-- has Director privileges.
+--
+-- The id MUST equal auth.users.id.
+--
+-- ============================================================
+
+create table public.directors (
+
+    id uuid primary key
+        references auth.users(id)
+        on delete cascade,
+
+    created_at timestamptz not null default now()
+
 );
 
-create table if not exists public.matches (
-  id uuid primary key default gen_random_uuid(),
-  candidate_a_id uuid not null references public.participants (id) on delete restrict,
-  candidate_b_id uuid not null references public.participants (id) on delete restrict,
-  score numeric not null,
-  sub_scores jsonb,
-  costume_set_id integer not null check (costume_set_id between 1 and 4),
-  costume_theme text not null,
-  serial text unique not null,
-  status text not null default 'matched' check (status in ('matched', 'dissolved')),
-  created_at timestamptz not null default now(),
-  constraint matches_must_be_distinct check (candidate_a_id <> candidate_b_id)
+
+-- ============================================================
+-- 4. STUDENTS TABLE
+-- ============================================================
+
+create table public.students (
+
+    id uuid primary key default gen_random_uuid(),
+
+    -- Random student access code.
+    -- Example:
+    -- SS-7K4P-X92M
+    access_code text not null unique,
+
+    -- Required student information
+    name text not null,
+    department text not null,
+    semester text not null,
+    instagram_id text not null,
+    favourite_movie text not null,
+    gender text not null,
+    match_intent text not null,
+
+    -- System status
+    status text not null default 'waiting'
+        check (
+            status in ('waiting', 'matched')
+        ),
+
+    created_at timestamptz not null default now(),
+
+    updated_at timestamptz not null default now()
+
 );
 
-create unique index if not exists participants_candidate_code_idx on public.participants (candidate_code);
-create index if not exists participants_role_idx on public.participants (role);
-create index if not exists participants_status_idx on public.participants (status);
-create index if not exists matches_candidate_pair_idx on public.matches (candidate_a_id, candidate_b_id);
-create index if not exists matches_created_at_idx on public.matches (created_at desc);
 
-alter table public.participants enable row level security;
+-- ============================================================
+-- 5. MATCHES TABLE
+-- ============================================================
+--
+-- The Director manually selects:
+--
+-- Student A
+--     +
+-- Student B
+--     ↓
+-- Match
+--
+-- There is NO score.
+-- There is NO AI.
+-- There is NO automatic matching.
+--
+-- ============================================================
+
+create table public.matches (
+
+    id uuid primary key default gen_random_uuid(),
+
+    student_a_id uuid not null
+        references public.students(id)
+        on delete restrict,
+
+    student_b_id uuid not null
+        references public.students(id)
+        on delete restrict,
+
+    status text not null default 'draft'
+        check (
+            status in ('draft', 'published')
+        ),
+
+    created_at timestamptz not null default now(),
+
+    published_at timestamptz,
+
+    -- A student cannot be matched with themselves.
+    constraint matches_students_must_be_different
+        check (student_a_id <> student_b_id)
+
+);
+
+
+-- ============================================================
+-- 6. ONE MATCH PER STUDENT
+-- ============================================================
+--
+-- This prevents:
+--
+-- Student A + Student B
+-- Student A + Student C   ❌
+--
+-- Student B + Student D   ❌
+--
+-- Each student can participate in only ONE match.
+--
+-- ============================================================
+
+create unique index matches_one_match_per_student_a
+on public.matches(student_a_id);
+
+create unique index matches_one_match_per_student_b
+on public.matches(student_b_id);
+
+
+-- ============================================================
+-- 7. INDEXES
+-- ============================================================
+
+create index students_status_idx
+on public.students(status);
+
+create index students_created_at_idx
+on public.students(created_at desc);
+
+create index matches_created_at_idx
+on public.matches(created_at desc);
+
+create index matches_status_idx
+on public.matches(status);
+
+
+-- ============================================================
+-- 8. ENABLE ROW LEVEL SECURITY
+-- ============================================================
+
 alter table public.directors enable row level security;
+
+alter table public.students enable row level security;
+
 alter table public.matches enable row level security;
 
-create policy "participants_are_publicly_readable" on public.participants
-for select
-using (true);
 
-create policy "participants_can_insert_candidate_or_director" on public.participants
-for insert
-with check (
-  (role = 'candidate' and name is not null and instagram is not null and favorite_movie is not null and favorite_music is not null) or
-  (role = 'director' and name is not null and instagram is not null)
+-- ============================================================
+-- 9. DIRECTOR HELPER FUNCTION
+-- ============================================================
+--
+-- Returns TRUE when the currently authenticated Supabase
+-- Auth user is registered as a Director.
+--
+-- This function is used by RLS policies.
+--
+-- ============================================================
+
+create or replace function public.is_director()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+
+    select exists (
+        select 1
+        from public.directors
+        where id = auth.uid()
+    );
+
+$$;
+
+
+-- ============================================================
+-- 10. DIRECTOR POLICIES
+-- ============================================================
+--
+-- Normal users cannot read or modify the directors table.
+--
+-- Director authorization is managed through the authenticated
+-- Supabase Auth user + directors table.
+--
+-- ============================================================
+
+create policy "directors_can_view_their_own_record"
+
+on public.directors
+
+for select
+
+to authenticated
+
+using (
+    id = auth.uid()
 );
 
-create policy "participants_are_not_publicly_updated" on public.participants
-for update
-using (false)
-with check (false);
 
-create policy "participants_are_not_publicly_deleted" on public.participants
-for delete
-using (false);
+-- ============================================================
+-- 11. STUDENT INSERT POLICY
+-- ============================================================
+--
+-- A student registration is allowed without a Supabase
+-- authentication account.
+--
+-- The website can therefore register students using the
+-- anonymous/public client.
+--
+-- IMPORTANT:
+-- Only the required fields are accepted.
+--
+-- ============================================================
 
-create policy "directors_are_publicly_readable" on public.directors
-for select
-using (true);
+create policy "students_can_register"
 
-create policy "directors_are_not_publicly_modified" on public.directors
+on public.students
+
 for insert
-with check (false);
 
-create policy "directors_are_not_publicly_updated" on public.directors
-for update
-using (false)
-with check (false);
+to anon, authenticated
 
-create policy "directors_are_not_publicly_deleted" on public.directors
-for delete
-using (false);
+with check (
 
-create policy "matches_are_publicly_readable" on public.matches
+    name is not null
+    and length(trim(name)) > 0
+
+    and department is not null
+    and length(trim(department)) > 0
+
+    and semester is not null
+    and length(trim(semester)) > 0
+
+    and instagram_id is not null
+    and length(trim(instagram_id)) > 0
+
+    and favourite_movie is not null
+    and length(trim(favourite_movie)) > 0
+
+    and gender is not null
+    and length(trim(gender)) > 0
+
+    and match_intent is not null
+    and length(trim(match_intent)) > 0
+
+    and status = 'waiting'
+
+);
+
+
+-- ============================================================
+-- 12. DIRECTOR STUDENT ACCESS
+-- ============================================================
+--
+-- Only an authenticated Director can directly read students.
+--
+-- Students do NOT receive a policy allowing them to read
+-- the entire students table.
+--
+-- ============================================================
+
+create policy "directors_can_view_students"
+
+on public.students
+
 for select
-using (true);
 
-create policy "matches_are_not_publicly_modified" on public.matches
-for insert
-with check (false);
+to authenticated
 
-create policy "matches_are_not_publicly_updated" on public.matches
+using (
+    public.is_director()
+);
+
+
+-- ============================================================
+-- 13. DIRECTOR CAN UPDATE STUDENTS
+-- ============================================================
+--
+-- Required when a match is created/published and the student
+-- status changes from waiting → matched.
+--
+-- ============================================================
+
+create policy "directors_can_update_students"
+
+on public.students
+
 for update
-using (false)
-with check (false);
 
-create policy "matches_are_not_publicly_deleted" on public.matches
-for delete
-using (false);
+to authenticated
 
-create or replace function public.create_match_if_eligible(
-  candidate_a_id uuid,
-  candidate_b_id uuid,
-  score_value numeric,
-  costume_set_id integer default 1
+using (
+    public.is_director()
 )
-returns public.matches
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  candidate_a public.participants;
-  candidate_b public.participants;
-  set_id integer;
-  selected_theme text;
-  insert_result public.matches;
-begin
-  if candidate_a_id is null or candidate_b_id is null then
-    raise exception 'Both candidates are required.';
-  end if;
 
-  if candidate_a_id = candidate_b_id then
-    raise exception 'A candidate cannot be matched with themselves.';
-  end if;
+with check (
+    public.is_director()
+);
 
-  select * into candidate_a
-  from public.participants
-  where id = candidate_a_id
-  for update;
 
-  select * into candidate_b
-  from public.participants
-  where id = candidate_b_id
-  for update;
+-- ============================================================
+-- 14. NO PUBLIC STUDENT UPDATE
+-- ============================================================
+--
+-- There is intentionally NO UPDATE policy for anon users.
+--
+-- A student cannot modify their own registration through
+-- direct database access.
+--
+-- ============================================================
 
-  if candidate_a is null or candidate_b is null then
-    raise exception 'Candidate records were not found.';
-  end if;
 
-  if candidate_a.role <> 'candidate' or candidate_b.role <> 'candidate' then
-    raise exception 'Only candidate records may be matched.';
-  end if;
+-- ============================================================
+-- 15. NO PUBLIC STUDENT DELETE
+-- ============================================================
+--
+-- There is intentionally NO DELETE policy.
+--
+-- ============================================================
 
-  if candidate_a.status <> 'IN REVIEW' or candidate_b.status <> 'IN REVIEW' then
-    raise exception 'Only pending candidates can be matched.';
-  end if;
 
-  if lower(candidate_a.gender) <> 'male' or lower(candidate_b.gender) <> 'female' then
-    raise exception 'Only Male + Female pairs are allowed.';
-  end if;
+-- ============================================================
+-- 16. DIRECTOR CAN CREATE MATCHES
+-- ============================================================
 
-  if exists (
-    select 1
-    from public.matches
-    where (
-      (candidate_a_id = candidate_a_id and candidate_b_id = candidate_b_id) or
-      (candidate_a_id = candidate_b_id and candidate_b_id = candidate_a_id)
-    )
-  ) then
-    raise exception 'This candidate pair already exists.';
-  end if;
+create policy "directors_can_create_matches"
 
-  set_id := coalesce(costume_set_id, 1);
-  if set_id not between 1 and 4 then
-    set_id := 1;
-  end if;
+on public.matches
 
-  selected_theme := case set_id
-    when 1 then 'Midnight Black'
-    when 2 then 'Burgundy Romance'
-    when 3 then 'Ivory & Brown'
-    else 'Midnight Blue'
-  end;
+for insert
 
-  insert into public.matches (
-    candidate_a_id,
-    candidate_b_id,
-    score,
-    sub_scores,
-    costume_set_id,
-    costume_theme,
-    serial,
-    status
-  ) values (
-    candidate_a_id,
-    candidate_b_id,
-    coalesce(score_value, 0),
-    jsonb_build_object('movie', 0, 'genre', 0, 'music', 0),
-    set_id,
-    selected_theme,
-    'MATCH-' || to_char(now(), 'YYYYMMDDHH24MISSMS') || '-' || candidate_a.candidate_code,
-    'matched'
-  ) returning * into insert_result;
+to authenticated
 
-  update public.participants
-  set status = 'MATCHED', updated_at = now()
-  where id in (candidate_a_id, candidate_b_id);
+with check (
+    public.is_director()
+);
 
-  return insert_result;
-end;
-$$;
 
-create or replace function public.ensure_director_record(p_data jsonb)
-returns public.participants
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  director_row public.participants;
-  director_profile jsonb := p_data;
-begin
-  select * into director_row
-  from public.participants
-  where role = 'director'
-  limit 1;
+-- ============================================================
+-- 17. DIRECTOR CAN VIEW MATCHES
+-- ============================================================
 
-  if director_row is null then
-    insert into public.participants (
-      candidate_code,
-      name,
-      branch,
-      semester,
-      instagram,
-      favorite_movie,
-      favorite_genre,
-      favorite_music,
-      match_intent,
-      gender,
-      role,
-      status
-    ) values (
-      coalesce(director_profile->>'candidate_code', 'DIR-001'),
-      director_profile->>'name',
-      director_profile->>'branch',
-      director_profile->>'semester',
-      director_profile->>'instagram',
-      director_profile->>'favorite_movie',
-      director_profile->>'favorite_genre',
-      director_profile->>'favorite_music',
-      coalesce(director_profile->>'match_intent', 'either'),
-      coalesce(director_profile->>'gender', 'Female'),
-      'director',
-      'MATCHED'
-    ) returning * into director_row;
+create policy "directors_can_view_matches"
 
-    insert into public.directors (
-      participant_id,
-      name,
-      branch,
-      semester,
-      instagram,
-      favorite_movie,
-      favorite_genre,
-      favorite_music,
-      gender
-    ) values (
-      director_row.id,
-      director_row.name,
-      director_row.branch,
-      director_row.semester,
-      director_row.instagram,
-      director_row.favorite_movie,
-      director_row.favorite_genre,
-      director_row.favorite_music,
-      director_row.gender
-    );
-  end if;
+on public.matches
 
-  return director_row;
-end;
-$$;
+for select
 
-create or replace function public.next_candidate_code()
-returns text
+to authenticated
+
+using (
+    public.is_director()
+);
+
+
+-- ============================================================
+-- 18. DIRECTOR CAN UPDATE MATCHES
+-- ============================================================
+--
+-- Used for:
+--
+-- draft → published
+--
+-- ============================================================
+
+create policy "directors_can_update_matches"
+
+on public.matches
+
+for update
+
+to authenticated
+
+using (
+    public.is_director()
+)
+
+with check (
+    public.is_director()
+);
+
+
+-- ============================================================
+-- 19. NO PUBLIC MATCH INSERT
+-- ============================================================
+--
+-- There is intentionally NO anonymous INSERT policy.
+--
+-- Students cannot create matches.
+--
+-- ============================================================
+
+
+-- ============================================================
+-- 20. NO PUBLIC MATCH UPDATE
+-- ============================================================
+--
+-- There is intentionally NO anonymous UPDATE policy.
+--
+-- ============================================================
+
+
+-- ============================================================
+-- 21. NO PUBLIC MATCH DELETE
+-- ============================================================
+--
+-- Matches should be controlled by the Director.
+--
+-- ============================================================
+
+
+-- ============================================================
+-- 22. STUDENT ACCESS FUNCTIONS
+-- ============================================================
+--
+-- Students don't have Supabase Auth accounts.
+--
+-- Therefore they use their unique access_code.
+--
+-- IMPORTANT:
+-- We do NOT make the students table publicly readable.
+--
+-- Instead, these controlled functions return only the
+-- information associated with the supplied access code.
+--
+-- ============================================================
+
+
+-- ------------------------------------------------------------
+-- 22A. GET STUDENT BY ACCESS CODE
+-- ------------------------------------------------------------
+
+create or replace function public.get_student_by_access_code(
+    p_access_code text
+)
+returns table (
+    id uuid,
+    access_code text,
+    name text,
+    department text,
+    semester text,
+    instagram_id text,
+    favourite_movie text,
+    gender text,
+    match_intent text,
+    status text,
+    created_at timestamptz
+)
+
 language sql
+
 security definer
+
 set search_path = public
+
 as $$
-  select 'PL-' || lpad(cast(coalesce(max(cast(split_part(candidate_code, '-', 2) as integer)), 0) + 1 as text), 3, '0')
-  from public.participants
-  where candidate_code ~ '^PL-[0-9]+$';
+
+    select
+        s.id,
+        s.access_code,
+        s.name,
+        s.department,
+        s.semester,
+        s.instagram_id,
+        s.favourite_movie,
+        s.gender,
+        s.match_intent,
+        s.status,
+        s.created_at
+
+    from public.students s
+
+    where s.access_code = p_access_code
+
+    limit 1;
+
 $$;
 
-alter publication supabase_realtime add table public.participants;
-alter publication supabase_realtime add table public.matches;
+
+-- ------------------------------------------------------------
+-- 22B. GET STUDENT MATCH BY ACCESS CODE
+-- ------------------------------------------------------------
+--
+-- This returns ONLY the match belonging to the supplied
+-- access code.
+--
+-- It does NOT expose all matches.
+--
+-- ============================================================
+
+create or replace function public.get_student_match_by_access_code(
+    p_access_code text
+)
+returns table (
+    match_id uuid,
+
+    student_id uuid,
+    student_name text,
+    student_department text,
+    student_semester text,
+    student_instagram_id text,
+    student_favourite_movie text,
+    student_gender text,
+    student_match_intent text,
+
+    matched_student_id uuid,
+    matched_student_name text,
+    matched_student_department text,
+    matched_student_semester text,
+    matched_student_instagram_id text,
+    matched_student_favourite_movie text,
+    matched_student_gender text,
+    matched_student_match_intent text,
+
+    match_status text,
+    published_at timestamptz
+
+)
+
+language sql
+
+security definer
+
+set search_path = public
+
+as $$
+
+    select
+
+        m.id,
+
+        s1.id,
+        s1.name,
+        s1.department,
+        s1.semester,
+        s1.instagram_id,
+        s1.favourite_movie,
+        s1.gender,
+        s1.match_intent,
+
+        s2.id,
+        s2.name,
+        s2.department,
+        s2.semester,
+        s2.instagram_id,
+        s2.favourite_movie,
+        s2.gender,
+        s2.match_intent,
+
+        m.status,
+        m.published_at
+
+    from public.students s1
+
+    join public.matches m
+        on (
+            m.student_a_id = s1.id
+            or
+            m.student_b_id = s1.id
+        )
+
+    join public.students s2
+        on (
+            (
+                m.student_a_id = s1.id
+                and m.student_b_id = s2.id
+            )
+            or
+            (
+                m.student_b_id = s1.id
+                and m.student_a_id = s2.id
+            )
+        )
+
+    where
+        s1.access_code = p_access_code
+
+        and m.status = 'published'
+
+    limit 1;
+
+$$;
+
+
+-- ============================================================
+-- 23. FUNCTION SECURITY
+-- ============================================================
+--
+-- These functions run with controlled privileges.
+--
+-- We explicitly allow the browser client to call them.
+--
+-- ============================================================
+
+grant execute
+on function public.get_student_by_access_code(text)
+to anon, authenticated;
+
+
+grant execute
+on function public.get_student_match_by_access_code(text)
+to anon, authenticated;
+
+
+-- ============================================================
+-- 24. DIRECTOR HELPER FUNCTION SECURITY
+-- ============================================================
+
+grant execute
+on function public.is_director()
+to authenticated;
+
+
+-- ============================================================
+-- 25. REALTIME
+-- ============================================================
+--
+-- Allows the frontend to subscribe to changes.
+--
+-- Useful later for:
+--
+-- Director publishes match
+--        ↓
+-- Student waiting page updates
+--
+-- ============================================================
+
+alter publication supabase_realtime
+add table public.students;
+
+alter publication supabase_realtime
+add table public.matches;
+
+
+-- ============================================================
+-- 26. COMMENTS
+-- ============================================================
+
+comment on table public.students is
+'Same Scene student registrations. Contains only required student information.';
+
+comment on table public.matches is
+'Same Scene manually created Director matches.';
+
+comment on table public.directors is
+'Authenticated Supabase users who are authorized as Same Scene Directors.';
+
+comment on column public.students.access_code is
+'Unique random access code used by a student to access their Same Scene status.';
+
+comment on column public.students.match_intent is
+'Student intention for the Same Scene matching event.';
+
+comment on column public.matches.status is
+'Match lifecycle: draft or published.';
