@@ -1,4 +1,6 @@
-# Película · Prom Night
+# promNight
+
+## Película · Prom Night
 
 Vintage-35mm film-festival themed matchmaking site. Static, no build step — open `index.html` in a browser, or serve the folder with any static server.
 
@@ -42,4 +44,3 @@ Gender:        Female
 - The app can be served as a static site or connected to Supabase for persistent data.
 - Fonts load from Google Fonts (Playfair Display + Inter) via CDN in `index.html`.
 - This repo includes validation scripts for director registration and matching flow checks.
-
