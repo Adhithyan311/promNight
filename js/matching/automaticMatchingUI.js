@@ -29,7 +29,9 @@ let currentBatchId = null;
 // ============================================================
 
 const supabaseClient =
-  window.supabaseClient;
+  typeof window !== "undefined"
+    ? window.supabaseClient
+    : null;
 
 
 // ============================================================

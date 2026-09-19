@@ -67,6 +67,26 @@ export async function initializeDirectorAuth() {
         await window.supabaseClient.auth.signOut();
       }
 
+      if (currentDirectorSession?.user) {
+        const { data: director, error: directorError } =
+          await window.supabaseClient
+            .from('directors')
+            .select('id')
+            .eq('id', currentDirectorSession.user.id)
+            .maybeSingle();
+
+        if (directorError) {
+          console.error(
+            'Failed to verify restored Director session:',
+            directorError
+          );
+          currentDirectorSession = null;
+        } else if (!director) {
+          await window.supabaseClient.auth.signOut();
+          currentDirectorSession = null;
+        }
+      }
+
     }
 
     /*
