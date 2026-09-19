@@ -52,6 +52,4 @@ export async function initializeApp() {
   });
 }
 
-installMatchStorageGuard();
-
 document.addEventListener("DOMContentLoaded", initializeApp);

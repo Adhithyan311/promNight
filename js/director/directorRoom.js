@@ -7,12 +7,16 @@ import {
   updateStudioCards
 } from './matchStudio.js';
 
+import {
+  setAutomaticMatchingStudents,
+  initializeMatchingModeSwitch
+} from '../matching/automaticMatchingUI.js';
+
 import { renderDirectoryList } from './cast.js';
 import { renderMatchesList } from './scenes.js';
 
 import { updateNavState } from '../ui/components.js';
 import { logoutDirector } from '../auth/directorAuth.js';
-
 
 export let currentDirectoryFilter = 'all';
 
@@ -27,26 +31,41 @@ let directorStudents = [];
 /* =========================================================
    LOAD STUDENTS FROM SUPABASE
 ========================================================= */
+
 let directorStudentsChannel = null;
+
+
 export function subscribeToDirectorStudentChanges() {
 
   if (!window.supabaseClient) {
-    console.error("Supabase client is unavailable.");
+
+    console.error(
+      "Supabase client is unavailable."
+    );
+
     return;
+
   }
 
+
   // Prevent duplicate subscriptions
+
   if (directorStudentsChannel) {
+
     window.supabaseClient.removeChannel(
       directorStudentsChannel
     );
 
     directorStudentsChannel = null;
+
   }
+
 
   directorStudentsChannel =
     window.supabaseClient
-      .channel("same-scene-director-students")
+      .channel(
+        "same-scene-director-students"
+      )
 
       .on(
         "postgres_changes",
@@ -55,6 +74,7 @@ export function subscribeToDirectorStudentChanges() {
           schema: "public",
           table: "students"
         },
+
         async payload => {
 
           console.log(
@@ -62,40 +82,53 @@ export function subscribeToDirectorStudentChanges() {
             payload.eventType
           );
 
+
           /*
            * Reload the latest student records.
            */
+
           const students =
             await loadDirectorStudents();
+
 
           /*
            * Update the matchmaking dropdowns.
            */
+
           populateCandidatePickers(
             students
           );
 
+
           /*
            * Refresh the selected student cards.
            */
+
           updateStudioCards();
+
 
           /*
            * Refresh dashboard numbers.
            */
+
           updateDashboardStats();
+
 
           /*
            * Refresh directory.
            */
+
           renderDirectoryList(
             currentDirectoryFilter
           );
 
+
           /*
            * Refresh matches.
            */
+
           renderMatchesList();
+
         }
       )
 
@@ -107,7 +140,14 @@ export function subscribeToDirectorStudentChanges() {
         );
 
       });
+
 }
+
+
+/* =========================================================
+   LOAD DIRECTOR STUDENTS
+========================================================= */
+
 export async function loadDirectorStudents() {
 
   if (!window.supabaseClient) {
@@ -163,6 +203,10 @@ export async function loadDirectorStudents() {
     }
 
 
+    /*
+     * Store latest students.
+     */
+
     directorStudents =
       Array.isArray(data)
         ? data
@@ -170,67 +214,79 @@ export async function loadDirectorStudents() {
 
 
     /*
-     * Compatibility layer for the existing
-     * Directory / legacy Director UI.
+     * Send latest students to
+     * Automatic Matching.
+     */
+
+    setAutomaticMatchingStudents(
+      directorStudents
+    );
+
+
+    /*
+     * Compatibility layer for the
+     * existing Directory / Director UI.
      */
 
     const compatibilityCandidates =
-      directorStudents.map(student => ({
+      directorStudents.map(
+        student => ({
 
-        id:
-          student.id,
+          id:
+            student.id,
 
-        name:
-          student.name,
+          name:
+            student.name,
 
-        department:
-          student.department,
+          department:
+            student.department,
 
-        branch:
-          student.department,
+          branch:
+            student.department,
 
-        semester:
-          student.semester,
+          semester:
+            student.semester,
 
-        instagram_id:
-          student.instagram_id,
+          instagram_id:
+            student.instagram_id,
 
-        instagram:
-          student.instagram_id,
+          instagram:
+            student.instagram_id,
 
-        handle:
-          student.instagram_id,
+          handle:
+            student.instagram_id,
 
-        favoriteMovie:
-          student.favourite_movie,
+          favoriteMovie:
+            student.favourite_movie,
 
-        favourite_movie:
-          student.favourite_movie,
+          favourite_movie:
+            student.favourite_movie,
 
-        gender:
-          student.gender,
+          gender:
+            student.gender,
 
-        matchIntent:
-          student.match_intent,
+          matchIntent:
+            student.match_intent,
 
-        match_intent:
-          student.match_intent,
+          match_intent:
+            student.match_intent,
 
-        status:
-          student.status === 'matched'
-            ? 'MATCHED'
-            : 'IN REVIEW',
+          status:
+            student.status === 'matched'
+              ? 'MATCHED'
+              : 'IN REVIEW',
 
-        role:
-          'candidate',
+          role:
+            'candidate',
 
-        created_at:
-          student.created_at,
+          created_at:
+            student.created_at,
 
-        updated_at:
-          student.updated_at
+          updated_at:
+            student.updated_at
 
-      }));
+        })
+      );
 
 
     /*
@@ -255,6 +311,7 @@ export async function loadDirectorStudents() {
     return [];
 
   }
+
 }
 
 
@@ -285,6 +342,7 @@ export function getAvailableMatchStudents() {
           .trim()
           .toLowerCase();
 
+
       return status === 'waiting';
 
     }
@@ -297,7 +355,9 @@ export function getAvailableMatchStudents() {
    FILTER HANDLING
 ========================================================= */
 
-export function setFilter(filter) {
+export function setFilter(
+  filter
+) {
 
   currentDirectoryFilter =
     filter;
@@ -307,14 +367,17 @@ export function setFilter(filter) {
     .querySelectorAll(
       '.filter-chip'
     )
-    .forEach(chip => {
+    .forEach(
+      chip => {
 
-      chip.classList.toggle(
-        'active',
-        chip.id === `filter-${filter}`
-      );
+        chip.classList.toggle(
+          'active',
+          chip.id ===
+            `filter-${filter}`
+        );
 
-    });
+      }
+    );
 
 
   renderDirectoryList(
@@ -358,13 +421,21 @@ export async function renderDirectorLobby() {
   /*
    * Always reload directly from Supabase.
    *
-   * This is important after a match is published.
+   * This is important after a match
+   * is published or a draft is created.
    */
 
   const students =
     await loadDirectorStudents();
 
-    subscribeToDirectorStudentChanges();
+
+  /*
+   * Subscribe to realtime changes.
+   */
+
+  subscribeToDirectorStudentChanges();
+
+
   /*
    * ONLY waiting students are passed
    * into Match Studio.
@@ -384,6 +455,7 @@ export async function renderDirectorLobby() {
           )
             .trim()
             .toLowerCase();
+
 
         return status === 'waiting';
 
@@ -410,6 +482,19 @@ export async function renderDirectorLobby() {
    */
 
   updateStudioCards();
+
+
+  /*
+   * Initialize the Manual /
+   * Automatic Matching switch.
+   *
+   * This creates:
+   *
+   * [ MANUAL MATCHING ]
+   * [ AUTOMATIC MATCHING ]
+   */
+
+  initializeMatchingModeSwitch();
 
 
   /*
@@ -456,6 +541,18 @@ export async function refreshDirectorRoom() {
 }
 
 
+/*
+ * Expose refresh function globally.
+ *
+ * automaticMatchingUI.js can call:
+ *
+ * window.refreshDirectorRoom()
+ */
+
+window.refreshDirectorRoom =
+  refreshDirectorRoom;
+
+
 /* =========================================================
    DIRECTOR TABS
 ========================================================= */
@@ -468,28 +565,34 @@ export function switchDirectorTab(
     .querySelectorAll(
       '.dr-tab'
     )
-    .forEach(tab => {
+    .forEach(
+      tab => {
 
-      tab.classList.toggle(
-        'active',
-        tab.dataset.tab === tabName
-      );
+        tab.classList.toggle(
+          'active',
+          tab.dataset.tab ===
+            tabName
+        );
 
-    });
+      }
+    );
 
 
   document
     .querySelectorAll(
       '.dr-sidebar-link'
     )
-    .forEach(link => {
+    .forEach(
+      link => {
 
-      link.classList.toggle(
-        'active',
-        link.dataset.tab === tabName
-      );
+        link.classList.toggle(
+          'active',
+          link.dataset.tab ===
+            tabName
+        );
 
-    });
+      }
+    );
 
 
   const studioContent =
@@ -540,8 +643,13 @@ export function switchDirectorTab(
   }
 
 
+  /*
+   * Directory tab.
+   */
+
   if (
-    tabName === 'directory'
+    tabName ===
+    'directory'
   ) {
 
     renderDirectoryList(
@@ -551,8 +659,13 @@ export function switchDirectorTab(
   }
 
 
+  /*
+   * Matches tab.
+   */
+
   if (
-    tabName === 'matches'
+    tabName ===
+    'matches'
   ) {
 
     renderMatchesList();
@@ -574,31 +687,34 @@ export function initDirectorTabs() {
     );
 
 
-  tabs.forEach(tab => {
+  tabs.forEach(
+    tab => {
 
-    tab.addEventListener(
-      'click',
-      event => {
+      tab.addEventListener(
+        'click',
 
-        event.preventDefault();
+        event => {
 
-
-        const tabName =
-          tab.dataset.tab;
+          event.preventDefault();
 
 
-        if (tabName) {
+          const tabName =
+            tab.dataset.tab;
 
-          switchDirectorTab(
-            tabName
-          );
+
+          if (tabName) {
+
+            switchDirectorTab(
+              tabName
+            );
+
+          }
 
         }
+      );
 
-      }
-    );
-
-  });
+    }
+  );
 
 
   /* -----------------------------------------

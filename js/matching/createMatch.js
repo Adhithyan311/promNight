@@ -208,6 +208,44 @@ export async function handleCreateMatch(
 
     /*
      * --------------------------------------------------
+     * SECURITY: ENFORCE GENDER RULE SERVER-SIDE
+     * --------------------------------------------------
+     *
+     * The Match Studio dropdowns only ever populate
+     * Candidate A with male students and Candidate B
+     * with female students, but that is a UI convenience,
+     * not a security boundary.
+     *
+     * This function is also reachable directly via
+     * window.handleCreateMatch(), so the rule must be
+     * enforced here, against the freshly-fetched student
+     * records, regardless of what the UI passed in.
+     */
+
+    const normalizeGender = (value) =>
+      String(value || '').trim().toLowerCase();
+
+    if (
+      normalizeGender(latestA.gender) !== 'male' ||
+      normalizeGender(latestB.gender) !== 'female'
+    ) {
+
+      console.error(
+        'Blocked match creation: gender rule violated.',
+        { studentA: latestA.id, studentB: latestB.id }
+      );
+
+      showMatchMessage(
+        'Invalid pairing: Candidate A must be male and Candidate B must be female.'
+      );
+
+      return;
+
+    }
+
+
+    /*
+     * --------------------------------------------------
      * CREATE DRAFT MATCH
      * --------------------------------------------------
      *

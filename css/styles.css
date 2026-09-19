@@ -1644,3 +1644,78 @@
   }
 
 }
+
+/* Final mobile shell correction. Keep the frame full-width and let only
+   intentionally scrollable content exceed its own content box. */
+@media (max-width: 640px) {
+  html,
+  body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .view {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 14px;
+    padding-right: 14px;
+    border-left: 1px solid var(--hairline);
+    border-right: 1px solid var(--hairline);
+    overflow-x: hidden;
+  }
+
+  .filmstrip {
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    padding-left: 0;
+    padding-right: 0;
+    overflow-x: auto !important;
+    overflow-y: hidden;
+  }
+
+  .filmstrip .frame {
+    flex: 0 0 clamp(128px, 36vw, 160px);
+    width: clamp(128px, 36vw, 160px);
+    min-width: clamp(128px, 36vw, 160px);
+  }
+
+  .hero-grid > *,
+  .paper-card,
+  .reg-card,
+  .gate-card,
+  .reveal-grid,
+  .reveal-photo,
+  .dr-main,
+  .directory-card,
+  .match-card,
+  .protocol-card {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .field input,
+  .field select,
+  .field textarea,
+  .btn,
+  .btn-full {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 360px) {
+  .view {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .filmstrip .frame {
+    flex-basis: clamp(120px, 38vw, 140px);
+    width: clamp(120px, 38vw, 140px);
+    min-width: clamp(120px, 38vw, 140px);
+  }
+}

@@ -2,6 +2,24 @@ import { Storage } from '../storage/storage.js';
 import { norm } from '../matching/matchUtils.js';
 import { setSelectedReelAId, setSelectedReelBId, updateStudioCards } from './matchStudio.js';
 
+/**
+ * Escape user-submitted text before inserting it into HTML.
+ *
+ * SECURITY: every field rendered here (name, department,
+ * instagram, matchIntent, favoriteMovie, favoriteGenre,
+ * favoriteMusic) originates from student self-registration
+ * and is NOT sanitized before it reaches this file. It MUST
+ * be escaped here, at the point of innerHTML interpolation.
+ */
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function renderDirectoryList(currentFilter = 'all') {
   const container = document.getElementById("dir-candidates-container");
   if (!container) return;
@@ -34,17 +52,17 @@ export function renderDirectoryList(currentFilter = 'all') {
       <div class="directory-card">
         <div class="info-col">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
-            <h4>${c.name}</h4>
-            <span class="status-badge ${statusClass}">${c.status}</span>
-            <span style="font-size:10px;color:var(--gold);">#${c.id}</span>
+            <h4>${escapeHtml(c.name)}</h4>
+            <span class="status-badge ${statusClass}">${escapeHtml(c.status)}</span>
+            <span style="font-size:10px;color:var(--gold);">#${escapeHtml(c.id)}</span>
           </div>
           <div class="sub-info">
-            Branch/Sem: <b>${c.department}</b> &nbsp;·&nbsp; Instagram: <b>@${c.instagram || c.handle}</b> &nbsp;·&nbsp; Intent: <b>${c.matchIntent}</b>
+            Branch/Sem: <b>${escapeHtml(c.department)}</b> &nbsp;·&nbsp; Instagram: <b>@${escapeHtml(c.instagram || c.handle)}</b> &nbsp;·&nbsp; Intent: <b>${escapeHtml(c.matchIntent)}</b>
           </div>
           <div style="font-size:12px;color:var(--cream-text);margin-top:4px;">
-            🎬 <b>Movie:</b> ${c.favoriteMovie || '—'} &nbsp;|&nbsp;
-            ✨ <b>Genre:</b> ${c.favoriteGenre || '—'} &nbsp;|&nbsp;
-            🎵 <b>Music:</b> ${c.favoriteMusic || '—'}
+            🎬 <b>Movie:</b> ${escapeHtml(c.favoriteMovie) || '—'} &nbsp;|&nbsp;
+            ✨ <b>Genre:</b> ${escapeHtml(c.favoriteGenre) || '—'} &nbsp;|&nbsp;
+            🎵 <b>Music:</b> ${escapeHtml(c.favoriteMusic) || '—'}
           </div>
         </div>
         <div class="actions">

@@ -9,6 +9,28 @@ let currentDirectorSession = null;
 let authInitialized = false;
 
 
+async function getAuthorizedDirectorSession(session) {
+
+  if (!session?.user || !window.supabaseClient) {
+    return null;
+  }
+
+  const { data: director, error } =
+    await window.supabaseClient
+      .from('directors')
+      .select('id')
+      .eq('id', session.user.id)
+      .maybeSingle();
+
+  if (error) {
+    console.error('Director authorization check failed:', error);
+    return null;
+  }
+
+  return director ? session : null;
+}
+
+
 /**
  * Initialize Supabase authentication and restore
  * an existing Director session.
@@ -36,7 +58,14 @@ export async function initializeDirectorAuth() {
 
     } else {
 
-      currentDirectorSession = data?.session || null;
+      currentDirectorSession =
+        await getAuthorizedDirectorSession(
+          data?.session || null
+        );
+
+      if (data?.session && !currentDirectorSession) {
+        await window.supabaseClient.auth.signOut();
+      }
 
     }
 
@@ -47,7 +76,29 @@ export async function initializeDirectorAuth() {
     window.supabaseClient.auth.onAuthStateChange(
       (_event, session) => {
 
-        currentDirectorSession = session || null;
+        if (!session) {
+          currentDirectorSession = null;
+          return;
+        }
+
+        void getAuthorizedDirectorSession(session)
+          .then(authorizedSession => {
+
+            currentDirectorSession = authorizedSession;
+
+            if (!authorizedSession) {
+              return window.supabaseClient.auth.signOut();
+            }
+
+            return null;
+          })
+          .catch(error => {
+            console.error(
+              'Director authorization update failed:',
+              error
+            );
+            currentDirectorSession = null;
+          });
 
       }
     );

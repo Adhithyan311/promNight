@@ -642,27 +642,32 @@ export async function publishMatch(
 
 
     /*
-     * Publish the match.
+     * --------------------------------------------------
+     * PUBLISH ATOMICALLY
+     * --------------------------------------------------
+     *
+     * Publishing the match AND marking both students as
+     * matched now happens inside a single Postgres RPC
+     * (publish_match_atomic), so the two changes commit
+     * or fail together in one transaction. This replaces
+     * the old two-step client-side update, which could
+     * previously leave a published match with a student
+     * still stuck at "waiting" if the second request
+     * failed after the first one succeeded.
      */
 
     const {
+      data: publishResult,
       error: publishError
     } =
       await window.supabaseClient
-        .from("matches")
-        .update({
-          status: "published",
-          published_at:
-            new Date().toISOString()
-        })
-        .eq(
-          "id",
-          match.id
+        .rpc(
+          "publish_match_atomic",
+          {
+            p_match_id: match.id
+          }
         )
-        .eq(
-          "status",
-          "draft"
-        );
+        .single();
 
 
     if (publishError) {
@@ -673,57 +678,11 @@ export async function publishMatch(
       );
 
       showSceneMessage(
-        "Unable to publish this match."
-      );
-
-      return;
-
-    }
-
-
-    /*
-     * Mark both students as matched.
-     */
-
-    const {
-      error: studentUpdateError
-    } =
-      await window.supabaseClient
-        .from("students")
-        .update({
-          status: "matched"
-        })
-        .in(
-          "id",
-          [
-            match.student_a_id,
-            match.student_b_id
-          ]
-        )
-        .eq(
-          "status",
-          "waiting"
-        );
-
-
-    if (studentUpdateError) {
-
-      console.error(
-        "Failed to update student status:",
-        studentUpdateError
-      );
-
-      /*
-       * Important:
-       * The match itself is already published.
-       *
-       * This is why the final production version
-       * should eventually use a PostgreSQL RPC
-       * transaction for publication.
-       */
-
-      showSceneMessage(
-        "Match published, but student status update needs attention."
+        publishError.message?.includes("no longer waiting")
+          ? "One or both students are no longer available for matching."
+          : publishError.message?.includes("not a draft")
+            ? "This scene has already been published."
+            : "Unable to publish this match. Please try again."
       );
 
       await renderMatchesList();
@@ -734,7 +693,7 @@ export async function publishMatch(
 
 
     showSceneMessage(
-      `✓ Match published: ${studentA.name} ↔ ${studentB.name}`
+      `✓ Match published: ${publishResult?.student_a_name || studentA.name} ↔ ${publishResult?.student_b_name || studentB.name}`
     );
 
 

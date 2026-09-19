@@ -2,8 +2,6 @@ import { getDirectorStudents } from './directorRoom.js';
 
 export let selectedReelAId = null;
 export let selectedReelBId = null;
-
-
 /* =========================================================
    SELECTION STATE
 ========================================================= */
@@ -39,10 +37,7 @@ function isWaitingStudent(student) {
       .trim()
       .toLowerCase();
 
-  return (
-    status === "waiting" ||
-    status === "in review"
-  );
+  return status === "waiting";
 }
 
 
